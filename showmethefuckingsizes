@@ -170,14 +170,27 @@ main() {
 
     # Count total directories for progress tracking with exclusions
     local total_dirs
-    total_dirs=$(find "$start_dir" -type d -maxdepth 2 \( \
-        -path "*/proc/*" -o -path "*/sys/*" -o -path "*/dev/*" -o -path "*/.git/*" \
-        -o -path "*/node_modules/*" -o -path "*/.npm/*" \
-        -o -path "*/Library" -o -path "*/Library/*" \
-        -o -path "*/Pictures/Photos Library.photoslibrary*" \
-        -o -path "*/System/*" -o -path "*/private/*" \
-        -o -path "*/.Trash/*" \
-        \) -prune -o -type d -print 2>/dev/null | wc -l)
+    # Dynamic exclusion pattern based on whether we're scanning within Library
+    if [[ "$start_dir" == */Library/* ]]; then
+        # Inside Library - exclude problematic subdirs but allow Library scanning
+        total_dirs=$(find "$start_dir" -type d -maxdepth 2 \( \
+            -path "*/proc/*" -o -path "*/sys/*" -o -path "*/dev/*" -o -path "*/.git/*" \
+            -o -path "*/node_modules/*" -o -path "*/.npm/*" \
+            -path "*/Pictures/Photos Library.photoslibrary*" \
+            -o -path "*/System/*" -o -path "*/private/*" \
+            -o -path "*/.Trash/*" \
+            \) -prune -o -type d -print 2>/dev/null | wc -l)
+    else
+        # Outside Library - exclude all Library paths
+        total_dirs=$(find "$start_dir" -type d -maxdepth 2 \( \
+            -path "*/proc/*" -o -path "*/sys/*" -o -path "*/dev/*" -o -path "*/.git/*" \
+            -o -path "*/node_modules/*" -o -path "*/.npm/*" \
+            -o -path "*/Library" -o -path "*/Library/*" \
+            -o -path "*/Pictures/Photos Library.photoslibrary*" \
+            -o -path "*/System/*" -o -path "*/private/*" \
+            -o -path "*/.Trash/*" \
+            \) -prune -o -type d -print 2>/dev/null | wc -l)
+    fi
     local count=0
     
     echo -e "${YELLOW}Found $total_dirs directories to scan${NC}"
@@ -185,14 +198,28 @@ main() {
 
     # Find all directories and calculate their sizes with improved exclusions
     # Limit depth to avoid infinite loops and improve performance
-    find "$start_dir" -type d -maxdepth 2 \( \
-        -path "*/proc/*" -o -path "*/sys/*" -o -path "*/dev/*" -o -path "*/.git/*" \
-        -o -path "*/node_modules/*" -o -path "*/.npm/*" \
-        -o -path "*/Library" -o -path "*/Library/*" \
-        -o -path "*/Pictures/Photos Library.photoslibrary*" \
-        -o -path "*/System/*" -o -path "*/private/*" \
-        -o -path "*/.Trash/*" \
-        \) -prune -o -type d -print 2>/dev/null | while read -r dir; do
+    {
+        if [[ "$start_dir" == */Library/* ]]; then
+            # Inside Library - exclude problematic subdirs but allow Library scanning
+            find "$start_dir" -type d -maxdepth 2 \( \
+                -path "*/proc/*" -o -path "*/sys/*" -o -path "*/dev/*" -o -path "*/.git/*" \
+                -o -path "*/node_modules/*" -o -path "*/.npm/*" \
+                -o -path "*/Pictures/Photos Library.photoslibrary*" \
+                -o -path "*/System/*" -o -path "*/private/*" \
+                -o -path "*/.Trash/*" \
+                \) -prune -o -type d -print 2>/dev/null
+        else
+            # Outside Library - exclude all Library paths
+            find "$start_dir" -type d -maxdepth 2 \( \
+                -path "*/proc/*" -o -path "*/sys/*" -o -path "*/dev/*" -o -path "*/.git/*" \
+                -o -path "*/node_modules/*" -o -path "*/.npm/*" \
+                -o -path "*/Library" -o -path "*/Library/*" \
+                -o -path "*/Pictures/Photos Library.photoslibrary*" \
+                -o -path "*/System/*" -o -path "*/private/*" \
+                -o -path "*/.Trash/*" \
+                \) -prune -o -type d -print 2>/dev/null
+        fi
+    } | while read -r dir; do
         ((count++))
         if [ $((count % 100)) -eq 0 ]; then
             echo -e "${GREEN}Progress: $count/$total_dirs directories processed...${NC}" >&2
