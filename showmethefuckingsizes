@@ -1,0 +1,138 @@
+#!/bin/bash
+
+# showmethefuckingsizes - Show directories sorted by size
+# Works on Linux and macOS
+
+set -euo pipefail
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Function to format bytes into human readable format
+format_size() {
+    local bytes=$1
+    local units=("B" "KB" "MB" "GB" "TB")
+    local unit_index=0
+    local size=$bytes
+
+    while (( $(echo "$size >= 1024" | bc -l) )) && (( unit_index < 4 )); do
+        size=$(echo "scale=1; $size / 1024" | bc -l)
+        ((unit_index++))
+    done
+
+    printf "%.1f%s" "$size" "${units[$unit_index]}"
+}
+
+# Function to get directory size
+get_dir_size() {
+    local dir="$1"
+    if [[ -d "$dir" && -r "$dir" ]]; then
+        local size
+        # Use du with different flags based on OS
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            size=$(du -sk "$dir" 2>/dev/null | cut -f1 | tr -d '\n\r' | grep -E '^[0-9]+$' || echo "0")
+        else
+            # Linux
+            size=$(du -sk --max-depth=0 "$dir" 2>/dev/null | cut -f1 | tr -d '\n\r' | grep -E '^[0-9]+$' || echo "0")
+        fi
+        echo "${size:-0}"
+    else
+        echo "0"
+    fi
+}
+
+# Function to display results with pagination
+paginate_output() {
+    local line_count=0
+    local terminal_height
+    terminal_height=$(tput lines)
+    local max_lines=$((terminal_height - 2))
+
+    while IFS= read -r line; do
+        echo -e "$line"
+        ((line_count++))
+        
+        if (( line_count >= max_lines )); then
+            echo -e "${YELLOW}Press SPACE for next page, or Ctrl+C to exit...${NC}"
+            read -n1 -s key
+            if [[ "$key" != " " ]]; then
+                exit 0
+            fi
+            line_count=0
+            # Clear the prompt line
+            tput cuu1
+            tput el
+        fi
+    done
+}
+
+main() {
+    echo -e "${GREEN}Scanning directories and calculating sizes...${NC}"
+    echo -e "${YELLOW}This may take a while for large filesystems${NC}"
+    echo ""
+
+    # Start from root directory, but you can change this
+    local start_dir="${1:-/}"
+    
+    # Check if bc is available for calculations
+    if ! command -v bc &> /dev/null; then
+        echo -e "${RED}Error: 'bc' calculator is required but not installed${NC}"
+        echo "Please install bc: "
+        echo "  macOS: brew install bc"
+        echo "  Ubuntu/Debian: sudo apt-get install bc"
+        echo "  CentOS/RHEL: sudo yum install bc"
+        exit 1
+    fi
+
+    # Create temporary file for results
+    local temp_file
+    temp_file=$(mktemp)
+    trap "rm -f '$temp_file'" EXIT
+
+    echo -e "${BLUE}Scanning from: $start_dir${NC}"
+    echo ""
+
+    # Find all directories and calculate their sizes
+    # Limit depth to avoid infinite loops and improve performance
+    find "$start_dir" -type d -maxdepth 4 2>/dev/null | while read -r dir; do
+        # Skip certain system directories to avoid permission issues and improve speed
+        case "$dir" in
+            */proc/* | */sys/* | */dev/* | */.git/* | */node_modules/* | */.npm/* | \
+            */Library/Application\ Support/MobileSync/* | */Library/iTunes/* | \
+            */Pictures/Photos\ Library.photoslibrary/* | */Library/Mobile\ Documents/* | \
+            */Library/CloudStorage/* | */System/* | */private/* | */.Trash/* | \
+            */Library/Caches/* | */Library/Logs/* | */Library/WebKit/*)
+                continue
+                ;;
+        esac
+        
+        size_kb=$(get_dir_size "$dir")
+        if [[ "$size_kb" =~ ^[0-9]+$ && "$size_kb" -gt 0 ]]; then
+            size_bytes=$((size_kb * 1024))
+            formatted_size=$(format_size "$size_bytes")
+            printf "%020d\t%s\t%s\n" "$size_bytes" "$formatted_size" "$dir"
+        fi
+    done | sort -nr | cut -f2,3 | {
+        echo -e "${GREEN}Directory sizes (largest first):${NC}"
+        echo -e "${GREEN}================================${NC}"
+        echo ""
+        
+        # Format output with colors
+        while IFS=$'\t' read -r size path; do
+            echo -e "${YELLOW}${size}${NC}\t${BLUE}${path}${NC}"
+        done
+    } > "$temp_file"
+
+    # Display results with pagination
+    cat "$temp_file" | paginate_output
+}
+
+# Check if script is being run directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
