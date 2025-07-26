@@ -133,6 +133,23 @@ main() {
         return
     fi
     
+    # Special handling for home directories - suggest using Library folder
+    if [[ "$start_dir" == "/Users/"* && "$start_dir" != */Library* && $(basename "$start_dir") != "Shared" ]]; then
+        echo -e "${YELLOW}Warning: Scanning home directories can be very slow due to large files.${NC}"
+        echo -e "${YELLOW}For faster results, try scanning specific subdirectories like:${NC}"
+        echo -e "${BLUE}  $start_dir/Library${NC} (use the Library-optimized scan)"
+        echo -e "${BLUE}  $start_dir/Documents${NC}"
+        echo -e "${BLUE}  $start_dir/Downloads${NC}"
+        echo ""
+        echo -e "${YELLOW}Continue with full home directory scan? (y/N)${NC}"
+        read -n1 -s response
+        if [[ "$response" != "y" && "$response" != "Y" ]]; then
+            echo -e "${GREEN}Scan cancelled.${NC}"
+            return
+        fi
+        echo ""
+    fi
+    
     # Check if bc is available for calculations
     if ! command -v bc &> /dev/null; then
         echo -e "${RED}Error: 'bc' calculator is required but not installed${NC}"
@@ -156,11 +173,10 @@ main() {
     total_dirs=$(find "$start_dir" -type d -maxdepth 2 \( \
         -path "*/proc/*" -o -path "*/sys/*" -o -path "*/dev/*" -o -path "*/.git/*" \
         -o -path "*/node_modules/*" -o -path "*/.npm/*" \
-        -o -path "*/Library/Application Support/MobileSync*" -o -path "*/Library/iTunes*" \
-        -o -path "*/Pictures/Photos Library.photoslibrary*" -o -path "*/Library/Mobile Documents*" \
-        -o -path "*/Library/CloudStorage*" -o -path "*/System/*" -o -path "*/private/*" \
-        -o -path "*/.Trash/*" -o -path "*/Library/Caches*" -o -path "*/Library/Logs*" \
-        -o -path "*/Library/WebKit*" -o -path "*/Library/Application Support/com.apple.*" \
+        -o -path "*/Library" -o -path "*/Library/*" \
+        -o -path "*/Pictures/Photos Library.photoslibrary*" \
+        -o -path "*/System/*" -o -path "*/private/*" \
+        -o -path "*/.Trash/*" \
         \) -prune -o -type d -print 2>/dev/null | wc -l)
     local count=0
     
@@ -172,11 +188,10 @@ main() {
     find "$start_dir" -type d -maxdepth 2 \( \
         -path "*/proc/*" -o -path "*/sys/*" -o -path "*/dev/*" -o -path "*/.git/*" \
         -o -path "*/node_modules/*" -o -path "*/.npm/*" \
-        -o -path "*/Library/Application Support/MobileSync*" -o -path "*/Library/iTunes*" \
-        -o -path "*/Pictures/Photos Library.photoslibrary*" -o -path "*/Library/Mobile Documents*" \
-        -o -path "*/Library/CloudStorage*" -o -path "*/System/*" -o -path "*/private/*" \
-        -o -path "*/.Trash/*" -o -path "*/Library/Caches*" -o -path "*/Library/Logs*" \
-        -o -path "*/Library/WebKit*" -o -path "*/Library/Application Support/com.apple.*" \
+        -o -path "*/Library" -o -path "*/Library/*" \
+        -o -path "*/Pictures/Photos Library.photoslibrary*" \
+        -o -path "*/System/*" -o -path "*/private/*" \
+        -o -path "*/.Trash/*" \
         \) -prune -o -type d -print 2>/dev/null | while read -r dir; do
         ((count++))
         if [ $((count % 100)) -eq 0 ]; then
