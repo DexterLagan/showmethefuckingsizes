@@ -71,6 +71,54 @@ paginate_output() {
     done
 }
 
+# Special function to handle macOS Library folder with known large directories
+handle_library_folder() {
+    local library_dir="$1"
+    echo -e "${BLUE}Scanning macOS Library folder: $library_dir${NC}"
+    echo -e "${YELLOW}Using targeted scan of major space-consuming directories${NC}"
+    echo ""
+
+    # Create temporary file for results
+    local temp_file
+    temp_file=$(mktemp)
+    trap "rm -f '$temp_file'" EXIT
+
+    # List of major Library subdirectories that typically use significant space
+    local major_dirs=(
+        "Developer"
+        "Containers" 
+        "Application Support"
+        "Mobile Documents"
+        "Caches"
+        "CloudStorage"
+        "Group Containers"
+        "Saved Application State"
+        "WebKit"
+        "Logs"
+        "Preferences"
+    )
+
+    echo -e "${GREEN}Directory sizes in Library (largest first):${NC}"
+    echo -e "${GREEN}=========================================${NC}"
+    echo ""
+
+    for dir_name in "${major_dirs[@]}"; do
+        local full_path="$library_dir/$dir_name"
+        if [[ -d "$full_path" ]]; then
+            local size_kb
+            size_kb=$(get_dir_size "$full_path")
+            if [[ "$size_kb" =~ ^[0-9]+$ && "$size_kb" -gt 0 ]]; then
+                local size_bytes=$((size_kb * 1024))
+                local formatted_size
+                formatted_size=$(format_size "$size_bytes")
+                printf "%020d\t%s\t%s\n" "$size_bytes" "$formatted_size" "$full_path"
+            fi
+        fi
+    done | sort -nr | cut -f2,3 | while IFS=$'\t' read -r size path; do
+        echo -e "${YELLOW}${size}${NC}\t${BLUE}${path}${NC}"
+    done
+}
+
 main() {
     echo -e "${GREEN}Scanning directories and calculating sizes...${NC}"
     echo -e "${YELLOW}This may take a while for large filesystems${NC}"
@@ -78,6 +126,12 @@ main() {
 
     # Start from root directory, but you can change this
     local start_dir="${1:-/}"
+    
+    # Special handling for macOS Library folder
+    if [[ "$start_dir" == */Library && "$start_dir" != */Library/* ]]; then
+        handle_library_folder "$start_dir"
+        return
+    fi
     
     # Check if bc is available for calculations
     if ! command -v bc &> /dev/null; then
@@ -97,31 +151,38 @@ main() {
     echo -e "${BLUE}Scanning from: $start_dir${NC}"
     echo ""
 
-    # Count total directories for progress tracking
+    # Count total directories for progress tracking with exclusions
     local total_dirs
-    total_dirs=$(find "$start_dir" -type d -maxdepth 4 2>/dev/null | wc -l)
+    total_dirs=$(find "$start_dir" -type d -maxdepth 2 \( \
+        -path "*/proc/*" -o -path "*/sys/*" -o -path "*/dev/*" -o -path "*/.git/*" \
+        -o -path "*/node_modules/*" -o -path "*/.npm/*" \
+        -o -path "*/Library/Application Support/MobileSync*" -o -path "*/Library/iTunes*" \
+        -o -path "*/Pictures/Photos Library.photoslibrary*" -o -path "*/Library/Mobile Documents*" \
+        -o -path "*/Library/CloudStorage*" -o -path "*/System/*" -o -path "*/private/*" \
+        -o -path "*/.Trash/*" -o -path "*/Library/Caches*" -o -path "*/Library/Logs*" \
+        -o -path "*/Library/WebKit*" -o -path "*/Library/Application Support/com.apple.*" \
+        \) -prune -o -type d -print 2>/dev/null | wc -l)
     local count=0
     
     echo -e "${YELLOW}Found $total_dirs directories to scan${NC}"
     echo ""
 
-    # Find all directories and calculate their sizes
+    # Find all directories and calculate their sizes with improved exclusions
     # Limit depth to avoid infinite loops and improve performance
-    find "$start_dir" -type d -maxdepth 4 2>/dev/null | while read -r dir; do
+    find "$start_dir" -type d -maxdepth 2 \( \
+        -path "*/proc/*" -o -path "*/sys/*" -o -path "*/dev/*" -o -path "*/.git/*" \
+        -o -path "*/node_modules/*" -o -path "*/.npm/*" \
+        -o -path "*/Library/Application Support/MobileSync*" -o -path "*/Library/iTunes*" \
+        -o -path "*/Pictures/Photos Library.photoslibrary*" -o -path "*/Library/Mobile Documents*" \
+        -o -path "*/Library/CloudStorage*" -o -path "*/System/*" -o -path "*/private/*" \
+        -o -path "*/.Trash/*" -o -path "*/Library/Caches*" -o -path "*/Library/Logs*" \
+        -o -path "*/Library/WebKit*" -o -path "*/Library/Application Support/com.apple.*" \
+        \) -prune -o -type d -print 2>/dev/null | while read -r dir; do
         ((count++))
         if [ $((count % 100)) -eq 0 ]; then
             echo -e "${GREEN}Progress: $count/$total_dirs directories processed...${NC}" >&2
         fi
-        # Skip certain system directories to avoid permission issues and improve speed
-        case "$dir" in
-            */proc/* | */sys/* | */dev/* | */.git/* | */node_modules/* | */.npm/* | \
-            */Library/Application\ Support/MobileSync/* | */Library/iTunes/* | \
-            */Pictures/Photos\ Library.photoslibrary/* | */Library/Mobile\ Documents/* | \
-            */Library/CloudStorage/* | */System/* | */private/* | */.Trash/* | \
-            */Library/Caches/* | */Library/Logs/* | */Library/WebKit/*)
-                continue
-                ;;
-        esac
+        # Directories are already filtered by find's -prune option above
         
         size_kb=$(get_dir_size "$dir")
         if [[ "$size_kb" =~ ^[0-9]+$ && "$size_kb" -gt 0 ]]; then
