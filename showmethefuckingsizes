@@ -97,9 +97,21 @@ main() {
     echo -e "${BLUE}Scanning from: $start_dir${NC}"
     echo ""
 
+    # Count total directories for progress tracking
+    local total_dirs
+    total_dirs=$(find "$start_dir" -type d -maxdepth 4 2>/dev/null | wc -l)
+    local count=0
+    
+    echo -e "${YELLOW}Found $total_dirs directories to scan${NC}"
+    echo ""
+
     # Find all directories and calculate their sizes
     # Limit depth to avoid infinite loops and improve performance
     find "$start_dir" -type d -maxdepth 4 2>/dev/null | while read -r dir; do
+        ((count++))
+        if [ $((count % 100)) -eq 0 ]; then
+            echo -e "${GREEN}Progress: $count/$total_dirs directories processed...${NC}" >&2
+        fi
         # Skip certain system directories to avoid permission issues and improve speed
         case "$dir" in
             */proc/* | */sys/* | */dev/* | */.git/* | */node_modules/* | */.npm/* | \
